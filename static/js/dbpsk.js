@@ -1,5 +1,3 @@
-
-
 // [Differentially encoded] phase modulation is:
 // - more robust than amplitude mod
 // - less spectral width than frequency mod (transmit inaudibly)
@@ -27,6 +25,16 @@ var _period = 1/_freq;
 var _samplesPerPeriod = _period * _sampleRate;
 var _samplesPerBit = _periodsPerBit * _samplesPerPeriod;
 
+/*
+ * util functions
+ */
+function cmp(a, b) {
+  if (a<b) {return -1;}
+  else if (a===b) {return 0;}
+  else if (a>b) {return 1;}
+  else {return -999;}
+}
+
 function arraysMatch(arr1, arr2) {
   // Check if the arrays are the same length
   if (arr1.length !== arr2.length) return false;
@@ -39,14 +47,6 @@ function arraysMatch(arr1, arr2) {
   // Otherwise, return true
   return true;
 };
-
-function unipolarToBipolar(arr) {
-  return arr.map(x=> 2*x-1);
-}
-
-function bipolarToUnipolar(arr) {
-  return arr.map(x => Math.floor((x+1)/2));
-}
 
 function decToBinArr(num, len) {
   let bin = [];
@@ -62,6 +62,28 @@ function stringToBinArr(str) {
     binArr.push(...decToBinArr(str.charCodeAt(i) & 0xff, 8));   // get and truncate char code to correspond to ASCII code, convert to binary array
   }
   return binArr;
+}
+
+/*
+ * dsp functions
+ */
+function calcSamplesPerBit(periodsPerBit, freq, sampleRate) {
+  let period = 1/freq;
+  let samplesPerPeriod = period * sampleRate;
+  let samplesPerBit = periodsPerBit * samplesPerPeriod;
+  return samplesPerBit;
+}
+
+function calcDuration(period, periodsPerBit, numBits) {
+  return period * periodsPerBit * numBits;
+}
+
+function unipolarToBipolar(arr) {
+  return arr.map(x=> 2*x-1);
+}
+
+function bipolarToUnipolar(arr) {
+  return arr.map(x => Math.floor((x+1)/2));
 }
 
 function expandBits(arr, samplesPerBit) {
@@ -89,8 +111,26 @@ function diffDecode(arr) {
   return decoded;
 }
 
+function isPhaseShifted(arr1, arr2) {
+  // if sum of vec mult <0, then phase offset > pi/2
+  let sum_mult = arr1.map((el, i) => el*arr2[i]).reduce((acc, val) => acc + val);
+  return sum_mult < 0
+}
+
+function getPhaseShifts(sig, samplesPerBit) {
+  let phaseOffset = []
+  for (let i = 0; i < sig.length-samplesPerBit; i = i+samplesPerBit) {
+    let seg1 = sig.slice(i, i + samplesPerBit);
+    let seg2 = sig.slice(i + samplesPerBit, i + 2*samplesPerBit);
+    if (seg1.len === seg2.len) {
+      phaseOffset.push(isPhaseShifted(seg1, seg2) ? 1 : 0)
+    }
+  }
+  return phaseOffset
+}
+
 function bpskModulate(arr) {
-  let duration = _period * _periodsPerBit * arr.length;
+  let duration = calcDuration(period, periodsPerBit, arr.length);
   let carrier = generateCarrierSignal(duration);
   let modulation = expandBits(arr, _samplesPerBit);
   // let modSignal = _.map(_.zip(carrier, msgExp), function(x){ return x[0]*x[1]; });
@@ -110,7 +150,7 @@ function decode(msg) {
   // remove barker code
   let preamble = decoded.slice(0, _barkerCode.length);
   if (arraysMatch(preamble, _barkerCode)) {
-    console.log('preamble match')
+    // console.log('preamble match')
     decoded = decoded.slice(_barkerCode.length);
   }
 
@@ -119,38 +159,6 @@ function decode(msg) {
     charCodes.push(parseInt(decoded.slice(i, i+8).join(''), 2));
   }
   return String.fromCharCode(...charCodes);
-}
-
-function isPhaseShifted(arr1, arr2) {
-  // if sum of vec mult <0, then phase offset > pi/2
-  let sum_mult = arr1.map((el, i) => el*arr2[i]).reduce((acc, val) => acc + val);
-  return sum_mult < 0
-}
-
-function calcSamplesPerBit(periodsPerBit, freq, sampleRate) {
-  let period = 1/freq;
-  let samplesPerPeriod = period * sampleRate;
-  let samplesPerBit = periodsPerBit * samplesPerPeriod;
-  return samplesPerBit;
-}
-
-function getPhaseShifts(sig, samplesPerBit) {
-  let phaseOffset = []
-  for (let i = 0; i < sig.length-samplesPerBit; i = i+samplesPerBit) {
-    let seg1 = sig.slice(i, i + samplesPerBit);
-    let seg2 = sig.slice(i + samplesPerBit, i + 2*samplesPerBit);
-    if (seg1.len === seg2.len) {
-      phaseOffset.push(isPhaseShifted(seg1, seg2) ? 1 : 0)
-    }
-  }
-  return phaseOffset
-}
-
-function cmp(a, b) {
-    if (a<b) {return -1;}
-    else if (a===b) {return 0;}
-    else if (a>b) {return 1;}
-    else {return -999;}
 }
 
 function generateCarrierSignal(dur) {
