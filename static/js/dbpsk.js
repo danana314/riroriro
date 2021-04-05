@@ -1,5 +1,4 @@
 
-var dbpsk = dbpsk || (function() {
 
 // [Differentially encoded] phase modulation is:
 // - more robust than amplitude mod
@@ -8,114 +7,259 @@ var dbpsk = dbpsk || (function() {
 
 // TODO:
 // - implement forward error correction
-  
-  var _audioContext;
 
-  var _amp;
-  var _freq;
-  var _sampleRate;
-  var _periodsPerBit;
-  var _encodedStartedBit;
-  var _barkerCode;
-  
-  var _period;
-  var _samplesPerPeriod;
-  var _samplesPerBit;
-  
-  // Private methods
-  function _unipolarToBipolar(arr) {
-    return _.map(arr, function(x){ return 2*x-1; });
+var _amp = 1;
+var _freq = 1000;
+var _sampleRate = 44100;
+var _periodsPerBit = 20;
+var _encodedStartedBit = 1;
+// var _barkerCode = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
+var _barkerCode = [1, 1, 1, 0, 0, 1, 0];
+
+var _period;
+var _samplesPerPeriod;
+var _samplesPerBit;
+
+var _audioContext;
+
+// Calculated params
+var _period = 1/_freq;
+var _samplesPerPeriod = _period * _sampleRate;
+var _samplesPerBit = _periodsPerBit * _samplesPerPeriod;
+
+function arraysMatch(arr1, arr2) {
+  // Check if the arrays are the same length
+  if (arr1.length !== arr2.length) return false;
+
+  // Check if all items exist and are in the same order
+  for (let i = 0; i < arr1.length; i++) {
+    if (arr1[i] !== arr2[i]) return false;
   }
-  
-  function _decToBinArr(num, len) {
-    var bin = [];
-    while (len--) {
-      bin.push((num >> len) & 1);
+
+  // Otherwise, return true
+  return true;
+};
+
+function unipolarToBipolar(arr) {
+  return arr.map(x=> 2*x-1);
+}
+
+function bipolarToUnipolar(arr) {
+  return arr.map(x => Math.floor((x+1)/2));
+}
+
+function decToBinArr(num, len) {
+  let bin = [];
+  while (len--) {
+    bin.push((num >> len) & 1);
+  }
+  return bin;
+}
+
+function stringToBinArr(str) {
+  let binArr = []
+  for (let i = 0; i<str.length; i++) {
+    binArr.push(...decToBinArr(str.charCodeAt(i) & 0xff, 8));   // get and truncate char code to correspond to ASCII code, convert to binary array
+  }
+  return binArr;
+}
+
+function expandBits(arr, samplesPerBit) {
+  // let msgExp = _.flatten(_.map(arr, function(x){return _.times(samplesPerBit, _.constant(x));}));  // expand to match signal length
+  let expanded = [];
+  for (const el of arr) {
+    for (let i = 0; i < samplesPerBit; i++) {
+      expanded.push(el);
     }
-    return bin;
   }
-  
-  function _encode(msg) {
-    var encoded = [_encodedStartedBit];
-    _.each(msg, function(char) {
-      var binarr = _decToBinArr(char.charCodeAt(0) & 0xff, 8);  //get and truncate char code to correspond to Ascii code, convert to binary array
-      _.each(binarr, function(bit) {
-        encoded.push(encoded[encoded.length - 1] ^ bit);  //XOR to indicate if bit changes
-      });
-    });
-    return encoded;
+  return expanded;
+}
+
+function diffEncode(arr) {
+  let encoded = [_encodedStartedBit];
+  arr.forEach(bit => encoded.push(encoded[encoded.length-1] ^ bit));  // XOR to indicate if bit changes
+  return encoded;
+}
+
+function diffDecode(arr) {
+  let decoded = [];
+  for (let i = 1; i < arr.length; i++) {
+    decoded.push(arr[i] ^ arr[i-1]);
   }
-  
-  function _generateCarrierSignal(dur) {
-    var data = [];
-    var inc = 1 / _sampleRate; // time step
-    for (var t = 0; t <= dur; t = t + inc)
-    {
-      data.push(_amp * Math.sin(2 * Math.PI * _freq * t));
+  return decoded;
+}
+
+function bpskModulate(arr) {
+  let duration = _period * _periodsPerBit * arr.length;
+  let carrier = generateCarrierSignal(duration);
+  let modulation = expandBits(arr, _samplesPerBit);
+  // let modSignal = _.map(_.zip(carrier, msgExp), function(x){ return x[0]*x[1]; });
+  let modSignal = carrier.map((el, i) => el*modulation[i]);
+  return modSignal;
+}
+
+function encode(msg) {
+  return unipolarToBipolar(diffEncode(_barkerCode.concat(stringToBinArr(msg))));
+}
+
+function decode(msg) {
+  msg = bipolarToUnipolar(msg);
+
+  let decoded = diffDecode(msg);
+
+  // remove barker code
+  let preamble = decoded.slice(0, _barkerCode.length);
+  if (arraysMatch(preamble, _barkerCode)) {
+    console.log('preamble match')
+    decoded = decoded.slice(_barkerCode.length);
+  }
+
+  let charCodes = [];
+  for (let i = 0; i < decoded.length; i = i+8) {
+    charCodes.push(parseInt(decoded.slice(i, i+8).join(''), 2));
+  }
+  return String.fromCharCode(...charCodes);
+}
+
+function isPhaseShifted(arr1, arr2) {
+  // if sum of vec mult <0, then phase offset > pi/2
+  let sum_mult = arr1.map((el, i) => el*arr2[i]).reduce((acc, val) => acc + val);
+  return sum_mult < 0
+}
+
+function calcSamplesPerBit(periodsPerBit, freq, sampleRate) {
+  let period = 1/freq;
+  let samplesPerPeriod = period * sampleRate;
+  let samplesPerBit = periodsPerBit * samplesPerPeriod;
+  return samplesPerBit;
+}
+
+function getPhaseShifts(sig, samplesPerBit) {
+  let phaseOffset = []
+  for (let i = 0; i < sig.length-samplesPerBit; i = i+samplesPerBit) {
+    let seg1 = sig.slice(i, i + samplesPerBit);
+    let seg2 = sig.slice(i + samplesPerBit, i + 2*samplesPerBit);
+    if (seg1.len === seg2.len) {
+      phaseOffset.push(isPhaseShifted(seg1, seg2) ? 1 : 0)
     }
-    return data;
   }
-  
-  // Public Functions
-  
+  return phaseOffset
+}
+
+function cmp(a, b) {
+    if (a<b) {return -1;}
+    else if (a===b) {return 0;}
+    else if (a>b) {return 1;}
+    else {return -999;}
+}
+
+function generateCarrierSignal(dur) {
+  let data = [];
+  let inc = 1 / _sampleRate; // time step
+  for (let t = 0; t <= dur; t = t + inc)
+  {
+    data.push(_amp * Math.sin(2 * Math.PI * _freq * t));
+  }
+  return data;
+}
+
+function detectPreamble(buffer) {
+
+}
+
+var dbpsk = dbpsk || (function() {
   function init(opts) {
     // Set default for opts
     opts = typeof opts !== 'undefined' ? opts : {};
-    
-    _audioContext     = opts.audioContext   || _audioContext || new window.AudioContext();
-    
-    _amp              = opts.amp            || 1;
-    _freq             = opts.freq           || 1000;
-    _sampleRate       = opts.sampleRate     || 44100;
-    _periodsPerBit    = opts.periodsPerBit  || 20;
-    _encodedStartedBit= opts.encodedStartBit||1;
-    _barkerCode       = opts.barkerCode     || [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
-    
+
+    _audioContext     = opts.audioContext   || _audioContext || new AudioContext();
+
+    _amp              = opts.amp            || _amp;
+    _freq             = opts.freq           || _freq;
+    _sampleRate       = opts.sampleRate     || _sampleRate;
+    _periodsPerBit    = opts.periodsPerBit  || _periodsPerBit;
+    _encodedStartedBit= opts.encodedStartBit|| _encodedStartedBit;
+    _barkerCode       = opts.barkerCode     || _barkerCode;
+
     // Calculated params
     _period = 1/_freq;
     _samplesPerPeriod = _period * _sampleRate;
     _samplesPerBit = _periodsPerBit * _samplesPerPeriod;
   }
-  
-  function modulate(msg)
-  {
-    // Encode message and convert to bipolar signal
-    var msgEnc = _unipolarToBipolar(_encode(msg));
-    
-    // Modulate signal
-    var duration = _period * _periodsPerBit * msgEnc.length;
-    var carrier = _generateCarrierSignal(duration);
-    var msgExp = _.flatten(_.map(msgEnc, function(x){return _.times(_samplesPerBit, _.constant(x));}));  // expand to match signal length
-    var modSignal = _.map(_.zip(carrier, msgExp), function(x){ return x[0]*x[1]; });
-    
-    var buffer = _audioContext.createBuffer(1, modSignal.length, _sampleRate);
-		var data = buffer.getChannelData(0);
-		data.set(modSignal);
+
+  function modulate(msg) {
+    // encode message
+    let msgEnc = encode(msg);
+
+    // modulate signal
+    let modSignal = bpskModulate(msgEnc);
+
+    let buffer = _audioContext.createBuffer(1, modSignal.length, _sampleRate);
+    buffer.getChannelData(0).set(modSignal);
     return buffer;
   }
-  
-  function demodulate(source, callback) {
-    
+
+  function demodulate(signal) {
     // processing nodes
-    var bpfilter = _audioContext.createBiquadFilter();  // band pass filter
-    var threshold = _audioContext.createScriptProcessor(4096, 1, 1);
-    var detector = _audioContext.createScriptProcessor(4096, 1, 1);
-    
+    // let biquadFilter = _audioContext.createBiquadFilter();  // band pass filter
+    // biquadFilter.type = 'bandpass';
+    // biquadFilter.frequency.value = _freq;
+
     // audio graph
-    source.connect(bpfilter);
-    bpfilter.connect(threshold);
-    threshold.connect(detector);
-    
-    
+    // source.connect(bpfilter);
+
+
+    // threshold
+    let threshold = 0.001;
+    signal = signal.map(el => Math.abs(el) > threshold ? cmp(el, 0) : 0);
+
+    let phaseOffset = getPhaseShifts(signal, _samplesPerBit);
+    phaseUnoffset = [1];
+    let phase;
+    for (const x of phaseOffset) {
+      prev = phaseUnoffset[phaseUnoffset.length - 1];
+      phaseUnoffset.push(x === 0 ? prev : -1*prev);
+    }
+    let decodedMsg = decode(bipolarToUnipolar(phaseUnoffset));
+    return decodedMsg;
   }
-  
+
   var oPublic =
   {
-    sampleRate: _sampleRate,
     init: init,
     modulate: modulate,
     demodulate: demodulate,
-    test: _unipolarToBipolar,
   };
   return oPublic;
+})();
+
+
+// tests
+(function testing(){
+
+  let testResults = [];
+
+  let msg = 'abc123ABC.+/='
+  testResults.push(decode(encode(msg))===msg)
+  // testResults.push(arraysMatch(encode('ab1!'), unipolarToBipolar(_barkerCode).concat([1, 1, -1, 1, 1, 1, 1, 1, -1, -1, 1, -1, -1, -1, -1, 1, 1, 1, 1, -1, 1, 1, 1, 1, -1, -1, -1, 1, 1, 1, 1, 1, -1])));
+  testResults.push(arraysMatch(diffEncode(stringToBinArr('ab1!')), [1, 1, 0, 1, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0]));
+
+  let arr1 = [1,2,3];
+  let arr2 = [3,5,-10];
+  let arr3 = [3,5,10];
+  testResults.push(isPhaseShifted(arr1, arr2)===true);
+  testResults.push(isPhaseShifted(arr1, arr3)===false);
+
+  testResults.push(arraysMatch(expandBits(arr1, 3), [1,1,1,2,2,2,3,3,3]));
+
+  testResults.push(calcSamplesPerBit(20,1000,44100)===882);
+
+  if (testResults.every(el => el)) {
+    console.log('All tests passed');
+  }
+  else {
+    console.log('Failing tests: ');
+    console.log(testResults);
+  }
+
 })();
