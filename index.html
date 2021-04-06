@@ -8,18 +8,16 @@
   <link rel="stylesheet" href="static/css/style.css">
 </head>
 <body>
-  <div id="layout">
-    <div id="main">
-      <canvas id="visualizer"></canvas>
-      <br>
-      <textarea id="input" rows="10">hello</textarea>
-      <br>
+  <div class="row">
+    <div class="column">
+      <textarea id="input" rows="2"></textarea>
       <button id="send">Send</button>
-      <label><input type="checkbox" id="debug">Debug</label>
-      <br>
-      <textarea id="rx" rows="10"></textarea>
+    </div>
+    <div class="column">
+      <textarea id="rx" rows="2"></textarea>
     </div>
   </div>
+  <canvas id="visualizer" style="width:100%"></canvas>
 
   <script src="static/js/dbpsk.js"></script>
   <script src="static/js/script.js"></script>
