@@ -11,8 +11,8 @@ var _freq = 1000;
 var _sampleRate = 44100;
 var _periodsPerBit = 20;
 var _encodedStartedBit = 1;
-// var _barkerCode = [1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 1];
-var _barkerCode = [1, 1, 1, 0, 0, 1, 0];
+// var _barkerCode = [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1];
+var _barkerCode = [1, 1, 1, -1, -1, 1, -1];
 
 var _period;
 var _samplesPerPeriod;
@@ -47,6 +47,16 @@ function arraysMatch(arr1, arr2) {
   // Otherwise, return true
   return true;
 };
+
+function getMax(arr) {
+    let len = arr.length;
+    let max = 0;
+
+    while (len--) {
+        max = Math.abs(arr[len]) > Math.abs(max) ? arr[len] : max;
+    }
+    return max;
+}
 
 function decToBinArr(num, len) {
   let bin = [];
@@ -87,7 +97,6 @@ function bipolarToUnipolar(arr) {
 }
 
 function expandBits(arr, samplesPerBit) {
-  // let msgExp = _.flatten(_.map(arr, function(x){return _.times(samplesPerBit, _.constant(x));}));  // expand to match signal length
   let expanded = [];
   for (const el of arr) {
     for (let i = 0; i < samplesPerBit; i++) {
@@ -130,29 +139,22 @@ function getPhaseShifts(sig, samplesPerBit) {
 }
 
 function bpskModulate(arr) {
-  let duration = calcDuration(period, periodsPerBit, arr.length);
+  let duration = calcDuration(_period, _periodsPerBit, arr.length);
   let carrier = generateCarrierSignal(duration);
   let modulation = expandBits(arr, _samplesPerBit);
-  // let modSignal = _.map(_.zip(carrier, msgExp), function(x){ return x[0]*x[1]; });
   let modSignal = carrier.map((el, i) => el*modulation[i]);
   return modSignal;
 }
 
 function encode(msg) {
-  return unipolarToBipolar(diffEncode(_barkerCode.concat(stringToBinArr(msg))));
+  return unipolarToBipolar(diffEncode(stringToBinArr(msg)));
 }
 
 function decode(msg) {
+
   msg = bipolarToUnipolar(msg);
-
   let decoded = diffDecode(msg);
-
-  // remove barker code
-  let preamble = decoded.slice(0, _barkerCode.length);
-  if (arraysMatch(preamble, _barkerCode)) {
-    // console.log('preamble match')
-    decoded = decoded.slice(_barkerCode.length);
-  }
+  console.log(decoded);
 
   let charCodes = [];
   for (let i = 0; i < decoded.length; i = i+8) {
@@ -169,6 +171,19 @@ function generateCarrierSignal(dur) {
     data.push(_amp * Math.sin(2 * Math.PI * _freq * t));
   }
   return data;
+}
+
+function generatePreambleCarrier(isReversed) {
+  let duration = calcDuration(_period, _periodsPerBit, _barkerCode.length);
+  let carrier = generateCarrierSignal(duration);
+  let modulation = expandBits(_barkerCode, _samplesPerBit);
+  let modSignal = carrier.map((el, i) => el*modulation[i]);
+  if (isReversed) {
+    modSignal = modSignal.reverse();
+  }
+  let buffer = _audioContext.createBuffer(1, modSignal.length, _sampleRate);
+  buffer.getChannelData(0).set(modSignal);
+  return buffer;
 }
 
 function detectPreamble(buffer) {
@@ -197,7 +212,13 @@ var dbpsk = dbpsk || (function() {
 
   function modulate(msg) {
     // encode message
-    let msgEnc = encode(msg);
+    let msgEnc = '';
+    if (msg.length) {
+      msgEnc = encode(msg);
+    }
+
+    // add barker code
+    msgEnc = _barkerCode.concat(msgEnc);
 
     // modulate signal
     let modSignal = bpskModulate(msgEnc);
@@ -208,18 +229,16 @@ var dbpsk = dbpsk || (function() {
   }
 
   function demodulate(signal) {
-    // processing nodes
-    // let biquadFilter = _audioContext.createBiquadFilter();  // band pass filter
-    // biquadFilter.type = 'bandpass';
-    // biquadFilter.frequency.value = _freq;
-
-    // audio graph
-    // source.connect(bpfilter);
-
-
     // threshold
     let threshold = 0.001;
     signal = signal.map(el => Math.abs(el) > threshold ? cmp(el, 0) : 0);
+
+    // remove barker code
+    let preamble = signal.slice(0, _barkerCode.length);
+    if (arraysMatch(preamble, _barkerCode)) {
+      signal = signal.slice(_barkerCode.length);
+    }
+    if (!signal.length) {return;}
 
     let phaseOffset = getPhaseShifts(signal, _samplesPerBit);
     phaseUnoffset = [1];
@@ -243,7 +262,7 @@ var dbpsk = dbpsk || (function() {
 
 
 // tests
-(function testing(){
+var testing = testing || (function(){
 
   let testResults = [];
 
@@ -269,5 +288,5 @@ var dbpsk = dbpsk || (function() {
     console.log('Failing tests: ');
     console.log(testResults);
   }
-
-})();
+});
+// testing();
