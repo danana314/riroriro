@@ -11,19 +11,14 @@ const convolver = audioCtx.createConvolver();
 // microphone
 var microphone;
 
-// audioCtx.audioWorklet.addModule('static/js/signal-detector.js').then(() => {
-// 	let signalDetector = new AudioWorkletNode(audioCtx, 'signal-detector');
-// 	convolver.connect(signalDetector);
-// });
-
 // config
 let config = {
 	fft_size: 8192,	// 8192 or 16384
-	conv_threshold: 2,
-	sig_threshold: 0.001,
+	conv_threshold: 3,
+	sig_threshold: 0.005,
 	sig_end_window: 500,
 	freq: 1000,
-	periods_per_bit: 20,
+	periods_per_bit: 40,
 	amp: 1
 }
 for (const c in config) {
@@ -48,6 +43,20 @@ document.getElementById('clear').addEventListener('click', function() {
 });
 
 // receive
+
+function getMatchingFromEnd(arr, condition) {
+	let len = arr.length;
+	let ret = [];
+	while (len--) {
+		if (condition(arr[len])) {
+			ret.push(arr[len]);
+		} else {
+			break;
+		}
+	}
+	return ret;
+}
+
 var isReceiving = false;
 document.getElementById('receive').addEventListener('click', function() {
 	isReceiving = !isReceiving;
@@ -124,21 +133,24 @@ document.getElementById('receive').addEventListener('click', function() {
 		if (maxConv > config.conv_threshold && !isSigDetected) {
 			isSigDetected = true;
 			let maxIdk = convolverDataArr.findIndex(el => el === maxConv);
+			// let maxIdk = convolverDataArr.findIndex(el => Math.abs(el - maxConv) < 0.001);
 			timeDataArr = timeDataArr.slice(maxIdk);
 		}
 
 		// detect end of message
 		let isBelowThreshold = (currentValue) => currentValue < config.sig_threshold;
-		let recentValues = timeDataArr.slice(timeDataArr.length - config.sig_end_window);
-		if (isSigDetected && recentValues.every(isBelowThreshold)) {
-			let decodedMsg = dbpsk.demodulate(timeDataArr);
-			document.getElementById('rx').value += decodedMsg;
-			console.log('decoded: ', decodedMsg);
-			isSigDetected = false;
-			convolverDataArr = [];
-			timeDataArr = [];
-			numLoops = 0;
-			sampleTimes = [];
+		let recentValues = getMatchingFromEnd(timeDataArr, isBelowThreshold);
+		if (isSigDetected && recentValues.length > config.sig_end_window) {
+			let decodedMsg = dbpsk.demodulate(timeDataArr.slice(0, timeDataArr.length - recentValues.length));
+			if (decodedMsg) {
+				document.getElementById('rx').value += decodedMsg;
+				console.log('decoded: ', decodedMsg);
+				isSigDetected = false;
+				convolverDataArr = [];
+				timeDataArr = [];
+				numLoops = 0;
+				sampleTimes = [];
+			}
 		}
 
 		if (isReceiving) {

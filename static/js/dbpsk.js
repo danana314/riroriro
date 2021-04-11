@@ -152,15 +152,23 @@ function encode(msg) {
 }
 
 function decode(msg) {
-
   msg = bipolarToUnipolar(msg);
   let decoded = diffDecode(msg);
-  // console.log(decoded);
+  console.log(decoded);
+
+  // sometimes, we miss the first bit. Assume the first bit is always 0  (aka ascii < 128)
+  if (decoded[0] === 1) {
+    decoded.unshift(0);
+  }
 
   let charCodes = [];
   for (let i = 0; i < decoded.length; i = i+8) {
-    charCodes.push(parseInt(decoded.slice(i, i+8).join(''), 2));
+    if (i+8 > decoded.length) {break;}
+    let parsedCharCode = parseInt(decoded.slice(i, i+8).join(''), 2);
+    // if (parsedCharCode > 128) {continue;}
+    charCodes.push(parsedCharCode);
   }
+  console.log(charCodes);
   return String.fromCharCode(...charCodes);
 }
 
@@ -245,7 +253,7 @@ var dbpsk = dbpsk || (function() {
       let prev = phaseUnoffset[phaseUnoffset.length - 1];
       phaseUnoffset.push(x === 0 ? prev : -1*prev);
     }
-    let decodedMsg = decode(bipolarToUnipolar(phaseUnoffset));
+    let decodedMsg = decode(phaseUnoffset);
     return decodedMsg;
   }
 
