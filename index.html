@@ -10,16 +10,65 @@
 <body>
   <div class="row">
     <div class="column">
-      <textarea id="input" rows="2"></textarea>
-      <button id="send">Send</button>
+      <textarea id="tx" rows="2"></textarea>
+      <div class="row">
+        <button id="send" class="column">Send</button>
+      </div>
     </div>
     <div class="column">
-      <textarea id="rx" rows="2"></textarea>
+      <textarea id="rx" rows="2" readonly></textarea>
+      <div class="row">
+        <button id="receive" class="column">Receive</button>
+        <button id="clear" class="column">clear</button>
+      </div>
     </div>
   </div>
-  <canvas id="visualizer" style="width:100%"></canvas>
 
-  <script src="static/js/dbpsk.js"></script>
-  <script src="static/js/script.js"></script>
+  <div>
+    <p>Config</p>
+      <div class="row">
+        <div class="column">
+          <label for="fft_size">FFT Size
+            <input id="fft_size" class="config" type="number">
+          </label>
+          <br>
+          <label for="conv_threshold">Convolution Threshold
+            <input id="conv_threshold" class="config" type="number">
+          </label>
+          <br>
+          <label for="sig_end_window">Signal End Window
+            <input id="sig_end_window" class="config" type="number">
+          </label>
+          <br>
+          <label for="sig_threshold">Signal Threshold
+            <input id="sig_threshold" class="config" type="number">
+          </label>
+        </div>
+
+        <div class="column">
+          <label for="freq">Frequency
+            <input id="freq" class="config" type="number">
+          </label>
+          <br>
+          <label for="periods_per_bit">Periods Per Bit
+            <input id="periods_per_bit" class="config" type="number">
+          </label>
+          <br>
+          <label for="amp">Amplitude
+            <input id="amp" class="config" type="number">
+          </label>
+          <br>
+        </div>
+      </div>
+      <canvas id="visualizer" style="width:100%"></canvas>
+      <label for="max_conv">Max Convolution
+        <input id="max_conv" type="number" readonly>
+      </label>
+      <label for="max_sig_level">Signal Level
+        <input id="max_sig_level" type="number" readonly>
+      </label>
+  </div>
+
+  <script type="module" src="static/js/script.js"></script>
 </body>
 </html>

@@ -1,127 +1,181 @@
 // riroriro
+import {dbpsk, generatePreambleCarrier, getMax} from './dbpsk.js';
 
-navigator.getMedia = (
-	navigator.getUserMedia ||
-	navigator.webkitGetUserMedia ||
-	navigator.mozGetUserMedia ||
-	navigator.msGetUserMedia
-);
-
-console.clear();
-
+// setup audio
 const AudioContext = window.AudioContext || window.webkitAudioContext;
 const audioCtx = new AudioContext({sampleRate: 44100});
-dbpsk.init({audioContext: audioCtx});
+dbpsk.init(audioCtx);
 
 const convolver = audioCtx.createConvolver();
-convolver.buffer = generatePreambleCarrier(true);
+
+// microphone
+var microphone;
 
 // audioCtx.audioWorklet.addModule('static/js/signal-detector.js').then(() => {
 // 	let signalDetector = new AudioWorkletNode(audioCtx, 'signal-detector');
 // 	convolver.connect(signalDetector);
 // });
 
-// initialized up here for testing
-var convolverDataArr = [];
-var timeDataArr = [];
-var numLoops;
-var timeNow;
-var sampleTimes = [];
-var sampleDiffs = [];
-const RENDER_QUANTUM = 128;
-const FFT_SIZE = 16384;	// 8192
+// config
+let config = {
+	fft_size: 8192,	// 8192 or 16384
+	conv_threshold: 2,
+	sig_threshold: 0.001,
+	sig_end_window: 500,
+	freq: 1000,
+	periods_per_bit: 20,
+	amp: 1
+}
+for (const c in config) {
+	document.getElementById(c).value = config[c];
+}
+dbpsk.updateConfig(config);
 
-document.getElementById("send").addEventListener('click', function(){
-	let input = document.getElementById('input').value;
-	// if (!input) return;
-	console.log('Sending: ' + input);
+function configChangeHandler(event) {
+	config[event.srcElement.id] = event.target.value;
+	dbpsk.updateConfig(config);
+	console.log('Config updated', config);
+}
 
-	// create source node and fill buffer
-	let source = audioCtx.createBufferSource();
-	source.buffer = dbpsk.modulate(input);
-	// source.buffer = generatePreambleCarrier();
+let configSelection = document.getElementsByClassName('config');
+for (let i = 0; i < configSelection.length; i++) {
+	configSelection[i].addEventListener('change', configChangeHandler);
+}
+
+// clear
+document.getElementById('clear').addEventListener('click', function() {
+	document.getElementById('rx').value = '';
+});
+
+// receive
+var isReceiving = false;
+document.getElementById('receive').addEventListener('click', function() {
+	isReceiving = !isReceiving;
+
+	if (!isReceiving) {
+		document.getElementById('receive').textContent = 'Receive';
+		return;
+	} else {
+		console.log('starting receive')
+		document.getElementById('receive').textContent = 'Stop Receiving';
+	}
+
+	// convolver
+	convolver.buffer = generatePreambleCarrier(true);
 
 	// processing nodes
-	// let biquadFilter = _audioContext.createBiquadFilter();  // band pass filter
-	// biquadFilter.type = 'bandpass';
-	// biquadFilter.frequency.value = _freq;
+	let biquadFilter = audioCtx.createBiquadFilter();  // band pass filter
+	biquadFilter.type = 'bandpass';
+	biquadFilter.frequency.value = 1000;
 
 	// convolver analyser
 	let convolverAnalyser = audioCtx.createAnalyser();
-	convolverAnalyser.fftSize = FFT_SIZE;
-	// convolverAnalyser.smoothingTimeConstant = 0.0;
-	// convolverAnalyser.minDecibels = -140;
-  // convolverAnalyser.maxDecibels = 0;
+	convolverAnalyser.fftSize = config.fft_size;
 
 	// time domain analyser
 	let timeAnalyser = audioCtx.createAnalyser();
-	timeAnalyser.fftSize = FFT_SIZE;
+	timeAnalyser.fftSize = config.fft_size;
 
-	// connect audio graph
-	source.connect(timeAnalyser).connect(audioCtx.destination); // default output, usu speakers
-	source.connect(convolver);
-	convolver.connect(convolverAnalyser);
+	// microphone
+	navigator.mediaDevices.getUserMedia({audio: true})
+		.then(stream => {
+			var microphone = audioCtx.createMediaStreamSource(stream);
+			microphone.connect(biquadFilter).connect(timeAnalyser);
+			microphone.connect(biquadFilter).connect(convolver).connect(convolverAnalyser);
+			audioCtx.resume();
+		})
+		.catch(err => { console.log(err); alert("Microphone is required."); });
 
 	// set up buffers
-	convolverDataArr = [];
-	timeDataArr = [];
-	let convolverBuffer = new Float32Array(FFT_SIZE);
-	let timeBuffer = new Float32Array(FFT_SIZE);
+	let convolverDataArr = [];
+	let timeDataArr = [];
+	let convolverBuffer = new Float32Array(config.fft_size);
+	let timeBuffer = new Float32Array(config.fft_size);
 
-	numLoops = 0;
-	timeNow = 0;
-	sampleTimes = [];
-	sampleDiffs = [];
+	let numLoops = 0;
+	let timeNow = 0;
+	let sampleTimes = [];
+	// let sampleDiffs = [];
+	let isSigDetected = false;
 
 	function sampleSignal() {
 		timeNow = audioCtx.currentTime;
-		// timeNow = audioCtx.getOutputTimestamp().contextTime;
 		convolverAnalyser.getFloatTimeDomainData(convolverBuffer);
 		timeAnalyser.getFloatTimeDomainData(timeBuffer);
+		draw(timeBuffer);
+		document.getElementById('max_sig_level').value = getMax(timeBuffer);
+
 		if (numLoops === 0) {
 			convolverDataArr.push(...convolverBuffer);
 			timeDataArr.push(...timeBuffer);
 		} else {
-			let timeDiff = timeNow - sampleTimes[sampleTimes.length - 1];
-			let newSamples = audioCtx.sampleRate * timeDiff;
-			sampleDiffs.push(newSamples);
-			convolverDataArr.push(...convolverBuffer.slice(convolverBuffer.length - newSamples));
-			timeDataArr.push(...timeBuffer.slice(timeBuffer.length - newSamples));
+			let timeDiff = timeNow - sampleTimes[sampleTimes.length - 1];		// time since last loop
+			let newSamples = audioCtx.sampleRate * timeDiff;								// number of new samples since last iteration. should be integer multiple of RENDER_QUANTUM
+			// sampleDiffs.push(newSamples);																		// to keep track of new sample additions. to verify that they are indeed integer multiples of RENDER_QUANTUM
+			convolverDataArr.push(...convolverBuffer.slice(convolverBuffer.length - newSamples));	// add new samples to existing buffer
+			timeDataArr.push(...timeBuffer.slice(timeBuffer.length - newSamples));		// add new samples to existing buffer
 		}
-		sampleTimes.push(timeNow);
+		sampleTimes.push(timeNow);		// keep track of loop times
 		numLoops += 1;
 
-		if (((new Date()) - startTime)/1000 < 1.5) {
-			setTimeout(sampleSignal, 50);
+		// detect peak in convolved wave
+		let maxConv = Math.abs(getMax(convolverDataArr));
+		document.getElementById('max_conv').value = maxConv;
+		if (maxConv > config.conv_threshold && !isSigDetected) {
+			isSigDetected = true;
+			let maxIdk = convolverDataArr.findIndex(el => el === maxConv);
+			timeDataArr = timeDataArr.slice(maxIdk);
+		}
+
+		// detect end of message
+		let isBelowThreshold = (currentValue) => currentValue < config.sig_threshold;
+		let recentValues = timeDataArr.slice(timeDataArr.length - config.sig_end_window);
+		if (isSigDetected && recentValues.every(isBelowThreshold)) {
+			let decodedMsg = dbpsk.demodulate(timeDataArr);
+			document.getElementById('rx').value += decodedMsg;
+			console.log('decoded: ', decodedMsg);
+			isSigDetected = false;
+			convolverDataArr = [];
+			timeDataArr = [];
+			numLoops = 0;
+			sampleTimes = [];
+		}
+
+		if (isReceiving) {
+			setTimeout(sampleSignal, 30);
 		}
 		else {
-			// startIdx = convolverDataArr.findIndex(el => el > 0.0001);
-			startIdx = 0;
-			maxIdk = convolverDataArr.findIndex(el => el === getMax(convolverDataArr));
-			convolverDataArr = convolverDataArr.slice(maxIdk);
-			timeDataArr = timeDataArr.slice(maxIdk);
-			console.log('max conv: ', getMax(convolverDataArr));
-			console.log('decoded: ', dbpsk.demodulate(timeDataArr));
-			// console.log(sampleTimes);
-			// console.log(sampleDiffs);
-			// console.log(timeDataArr);
-			draw(timeDataArr);
+			isSigDetected = false;
+			isReceiving = false;
 		}
 	}
-
-	startTime = new Date();
 	sampleSignal();
+});
+
+// send
+document.getElementById('send').addEventListener('click', function(){
+	let input = document.getElementById('tx').value;
+	if (!input) return;
+
+	// create source node and fill buffer
+	let source = audioCtx.createBufferSource();
+	source.buffer = dbpsk.modulate(input);
+
+	// connect audio graph
+	source.connect(audioCtx.destination); // default output, usu speakers
 	source.start();
 });
 
-var WIDTH = 1000;
-var HEIGHT = 600;
+// draw
+const WIDTH = 1000;
+const HEIGHT = 600;
 
 function draw(arr) {
-	maxValue = Math.abs(getMax(arr));
+	let maxValue = 1;
+
 	// VISUALIZE
-	var canvas = document.getElementById('visualizer');
-	var canvasCtx = canvas.getContext('2d');
+	let canvas = document.getElementById('visualizer');
+	let canvasCtx = canvas.getContext('2d');
 	canvas.width = WIDTH;
 	canvas.height = HEIGHT;
 	canvasCtx.clearRect(0,0,WIDTH,HEIGHT);
@@ -133,12 +187,16 @@ function draw(arr) {
 	var sliceWidth = WIDTH * 1.0 / arr.length;
 	var x = 0;
 
+	function scaleY(y) {
+		let v = y/maxValue;
+		return v*HEIGHT + HEIGHT/2;
+	}
+
 	// draw the time domain chart.
-	for (var i = 0; i < arr.length; i++) {
-		var v = arr[i]/maxValue;
-		var y = v*HEIGHT/2.2 + 300;
+	for (let i = 0; i < arr.length; i++) {
+		let y = scaleY(arr[i]);
 		if (i==0) {
-			canvasCtx.moveTo(x,y);
+			canvasCtx.moveTo(x, y);
 		} else {
 			canvasCtx.lineTo(x, y);
 		}
@@ -146,5 +204,11 @@ function draw(arr) {
 	}
 	canvasCtx.lineTo(canvas.width, canvas.height/2);
 	canvasCtx.stroke();
+
+	// write y axis
+	canvasCtx.font = "30px Arial";
+	canvasCtx.fillStyle = 'rgb(255, 0, 0)';
+	canvasCtx.fillText("0", 0, HEIGHT/2);
+	canvasCtx.fillText(maxValue, 0, 30);
 }
 

@@ -11,8 +11,9 @@ var _freq = 1000;
 var _sampleRate = 44100;
 var _periodsPerBit = 20;
 var _encodedStartedBit = 1;
-// var _barkerCode = [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1];
-var _barkerCode = [1, 1, 1, -1, -1, 1, -1];
+var _barkerCode = [1, 1, 1, 1, 1, -1, -1, 1, 1, -1, 1, -1, 1];
+// var _barkerCode = [1, 1, 1, -1, -1, 1, -1];
+var _sig_threshold = 0.001;
 
 var _period;
 var _samplesPerPeriod;
@@ -154,7 +155,7 @@ function decode(msg) {
 
   msg = bipolarToUnipolar(msg);
   let decoded = diffDecode(msg);
-  console.log(decoded);
+  // console.log(decoded);
 
   let charCodes = [];
   for (let i = 0; i < decoded.length; i = i+8) {
@@ -186,16 +187,14 @@ function generatePreambleCarrier(isReversed) {
   return buffer;
 }
 
-function detectPreamble(buffer) {
-
-}
-
 var dbpsk = dbpsk || (function() {
-  function init(opts) {
+  function init(audioContext) {
+    _audioContext = audioContext || _audioContext || new AudioContext();
+  }
+
+  function updateConfig(opts) {
     // Set default for opts
     opts = typeof opts !== 'undefined' ? opts : {};
-
-    _audioContext     = opts.audioContext   || _audioContext || new AudioContext();
 
     _amp              = opts.amp            || _amp;
     _freq             = opts.freq           || _freq;
@@ -203,6 +202,7 @@ var dbpsk = dbpsk || (function() {
     _periodsPerBit    = opts.periodsPerBit  || _periodsPerBit;
     _encodedStartedBit= opts.encodedStartBit|| _encodedStartedBit;
     _barkerCode       = opts.barkerCode     || _barkerCode;
+    _sig_threshold    = opts.sig_threshold  || _sig_threshold;
 
     // Calculated params
     _period = 1/_freq;
@@ -229,9 +229,7 @@ var dbpsk = dbpsk || (function() {
   }
 
   function demodulate(signal) {
-    // threshold
-    let threshold = 0.001;
-    signal = signal.map(el => Math.abs(el) > threshold ? cmp(el, 0) : 0);
+    signal = signal.map(el => Math.abs(el) > _sig_threshold ? cmp(el, 0) : 0);
 
     // remove barker code
     let preamble = signal.slice(0, _barkerCode.length);
@@ -241,10 +239,10 @@ var dbpsk = dbpsk || (function() {
     if (!signal.length) {return;}
 
     let phaseOffset = getPhaseShifts(signal, _samplesPerBit);
-    phaseUnoffset = [1];
+    let phaseUnoffset = [1];
     let phase;
     for (const x of phaseOffset) {
-      prev = phaseUnoffset[phaseUnoffset.length - 1];
+      let prev = phaseUnoffset[phaseUnoffset.length - 1];
       phaseUnoffset.push(x === 0 ? prev : -1*prev);
     }
     let decodedMsg = decode(bipolarToUnipolar(phaseUnoffset));
@@ -254,6 +252,7 @@ var dbpsk = dbpsk || (function() {
   var oPublic =
   {
     init: init,
+    updateConfig: updateConfig,
     modulate: modulate,
     demodulate: demodulate,
   };
@@ -290,3 +289,5 @@ var testing = testing || (function(){
   }
 });
 // testing();
+
+export {dbpsk, generatePreambleCarrier, getMax};
