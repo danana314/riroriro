@@ -1,5 +1,48 @@
+:root {
+  --dark-color: #0d1a1a;
+  --light-color: #c6d9df;
+  --accent-color: #486f81;
+}
+
 * {
   box-sizing: border-box;
+  font-family: 'Fira Code', Monaco, monospace;
+  font-size: 18px;
+}
+
+body {
+  background-color: var(--dark-color);
+  color: var(--light-color);
+}
+
+input, textarea {
+  background-color: var(--accent-color);
+  color: var(--light-color);
+}
+
+textarea {
+  width: 100%;
+}
+
+textarea {
+  background-color: var(--accent-color);
+  color: var(--light-color);
+  margin: 9;
+  padding: 0;
+  width: 100%;
+}
+
+button {
+  color: var(--dark-color);
+  background-color: var(--light-color);
+  border: none;
+  margin: 5px;
+  display: inline-block;
+  font-size: 18px;
+}
+
+label {
+  font-size: 18px;
 }
 
 .row {
@@ -14,3 +57,4 @@
 button {
     width: 100%;
 }
+

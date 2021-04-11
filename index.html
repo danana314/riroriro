@@ -3,71 +3,87 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SM</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.min.css">
+  <title>riroriro</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;500;600;700&display=swap" rel='stylesheet' type='text/css'>
+  <!-- <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600&family=Raleway:wght@800&display=swap" rel='stylesheet' type='text/css'> -->
+  <!-- Pico.css -->
+  <!-- <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.min.css"> -->
+
+  <!-- Custom template-->
+  <!-- <link rel="stylesheet" href="static/css/custom.css"> -->
   <link rel="stylesheet" href="static/css/style.css">
 </head>
 <body>
+  <main class="container">
   <div class="row">
     <div class="column">
-      <textarea id="tx" rows="2"></textarea>
+      <textarea id="tx" rows="3"></textarea>
       <div class="row">
-        <button id="send" class="column">Send</button>
+        <button id="send" class="column">send</button>
       </div>
     </div>
     <div class="column">
-      <textarea id="rx" rows="2" readonly></textarea>
+      <textarea id="rx" rows="3" readonly></textarea>
       <div class="row">
-        <button id="receive" class="column">Receive</button>
+        <button id="receive" class="column">receive</button>
         <button id="clear" class="column">clear</button>
       </div>
     </div>
   </div>
-
+  <br>
   <div>
-    <p>Config</p>
+      <h3>config</h3>
       <div class="row">
         <div class="column">
-          <label for="fft_size">FFT Size
+          <label for="fft_size">fft size
+            <br>
             <input id="fft_size" class="config" type="number">
           </label>
-          <br>
-          <label for="conv_threshold">Convolution Threshold
+          <br><br>
+          <label for="conv_threshold">convolution Threshold
+            <br>
             <input id="conv_threshold" class="config" type="number">
           </label>
-          <br>
-          <label for="sig_end_window">Signal End Window
+          <br><br>
+          <label for="sig_end_window">signal end window
+            <br>
             <input id="sig_end_window" class="config" type="number">
           </label>
-          <br>
-          <label for="sig_threshold">Signal Threshold
+          <br><br>
+          <label for="sig_threshold">signal threshold
+            <br>
             <input id="sig_threshold" class="config" type="number">
           </label>
         </div>
 
         <div class="column">
-          <label for="freq">Frequency
+          <label for="freq">frequency
+            <br>
             <input id="freq" class="config" type="number">
           </label>
-          <br>
-          <label for="periods_per_bit">Periods Per Bit
+          <br><br>
+          <label for="periods_per_bit">periods per bit
+            <br>
             <input id="periods_per_bit" class="config" type="number">
           </label>
-          <br>
-          <label for="amp">Amplitude
+          <br><br>
+          <label for="amp">amplitude
+            <br>
             <input id="amp" class="config" type="number">
           </label>
-          <br>
         </div>
       </div>
+      <br>
       <canvas id="visualizer" style="width:100%"></canvas>
-      <label for="max_conv">Max Convolution
+      <label for="max_conv">max convolution
         <input id="max_conv" type="number" readonly>
       </label>
-      <label for="max_sig_level">Signal Level
+      <br><br>
+      <label for="max_sig_level">signal level
         <input id="max_sig_level" type="number" readonly>
       </label>
   </div>
+  </main>
 
   <script type="module" src="static/js/script.js"></script>
 </body>
